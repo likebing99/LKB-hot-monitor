@@ -1,0 +1,22 @@
+{
+  "name": "lkb-hot-monitor-server",
+  "version": "1.0.0",
+  "description": "AI热点监控服务端",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.0",
+    "rss-parser": "^3.13.0",
+    "sql.js": "^1.14.1",
+    "ws": "^8.18.0"
+  }
+}
