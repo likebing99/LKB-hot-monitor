@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../lib/api';
 import { RefreshCw, TrendingUp, Newspaper, BarChart3, ExternalLink, Shield, ShieldAlert, Filter, Heart, MessageCircle, Eye, Repeat2, Target, Search, X } from 'lucide-react';
@@ -16,6 +16,8 @@ function SourceTag({ source }) {
     web: 'bg-neon-blue/10 text-neon-blue border-neon-blue/20',
     twitter: 'bg-aurora-cyan/10 text-aurora-cyan border-aurora-cyan/20',
     rss: 'bg-aurora-purple/10 text-aurora-purple border-aurora-purple/20',
+    bilibili: 'bg-pink-500/10 text-pink-500 border-pink-500/20',
+    weibo: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
   };
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full border ${colors[source] || colors.web}`}>
@@ -50,7 +52,7 @@ function HotspotCard({ item }) {
           href={item.source_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="absolute top-4 right-4 z-10 p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-aurora-cyan transition-all"
+          className="absolute top-4 right-4 z-20 p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-aurora-cyan transition-all"
           title="查看原文"
         >
           <ExternalLink size={16} />
@@ -142,6 +144,8 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const countdownRef = useRef(null);
   const [filters, setFilters] = useState({ source: '', verified_only: false, min_score: '' });
   const [keywords, setKeywords] = useState([]);
   const [selectedKeyword, setSelectedKeyword] = useState('');
@@ -150,11 +154,11 @@ export default function Dashboard() {
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const params = { page, limit: 20 };
       if (filters.source) params.source = filters.source;
-      if (filters.verified_only) params.verified_only = true;
+      params.verified_only = '1';
       if (filters.min_score) params.min_score = filters.min_score;
       if (selectedKeyword) params.keyword_id = selectedKeyword;
       if (searchQuery) params.search = searchQuery;
@@ -173,39 +177,92 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, filters, selectedKeyword, searchQuery]);
 
-  useEffect(() => { fetchData(); }, [page, filters, selectedKeyword, searchQuery]);
+  // Keep a ref to the latest fetchData for use in non-reactive callbacks
+  const fetchDataRef = useRef(fetchData);
+  useEffect(() => { fetchDataRef.current = fetchData; }, [fetchData]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   useEffect(() => {
-    const interval = setInterval(fetchData, 60000);
+    const interval = setInterval(() => fetchDataRef.current(), 60000);
     return () => clearInterval(interval);
-  }, [page, filters, selectedKeyword, searchQuery]);
+  }, []);
+
+  const stopCountdown = useCallback(() => {
+    setRefreshing(false);
+    setCountdown(0);
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+  }, []);
+
+  const startCountdown = useCallback(() => {
+    setRefreshing(true);
+    setCountdown(60);
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    countdownRef.current = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          // Timeout: force stop
+          stopCountdown();
+          fetchDataRef.current();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [stopCountdown]);
+
+  useEffect(() => {
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
+  }, []);
+
+  // Use refs for filter values so WebSocket handler always reads latest
+  const filtersRef = useRef({ selectedKeyword, filters, searchQuery });
+  useEffect(() => {
+    filtersRef.current = { selectedKeyword, filters, searchQuery };
+  }, [selectedKeyword, filters, searchQuery]);
 
   useEffect(() => {
     if (!lastMessage) return;
     const { type, data } = lastMessage;
-    if (
-      type === 'new_hotspot' ||
-      type === 'keyword-hit' ||
-      (type === 'scan-progress' && data?.status === 'completed')
-    ) {
-      fetchData();
+    if (type === 'new_hotspot' && data) {
+      const { selectedKeyword: kw, filters: f, searchQuery: sq } = filtersRef.current;
+      const matchesKeyword = !kw || String(data.keyword_id) === String(kw);
+      const matchesSource = !f.source || data.source === f.source;
+      const matchesScore = !f.min_score || (data.heat_score >= Number(f.min_score));
+      const matchesVerified = data.is_verified;
+      const matchesSearch = !sq || data.title?.toLowerCase().includes(sq.toLowerCase()) || data.summary?.toLowerCase().includes(sq.toLowerCase());
+
+      if (matchesKeyword && matchesSource && matchesScore && matchesVerified && matchesSearch) {
+        setHotspots(prev => [data, ...prev].slice(0, 20));
+        setTotal(prev => prev + 1);
+      }
+      setStats(prev => prev ? {
+        ...prev,
+        todayHotspots: (prev.todayHotspots || 0) + 1,
+        totalHotspots: (prev.totalHotspots || 0) + 1,
+      } : prev);
+    }
+    if (type === 'scan-progress' && data?.status === 'completed') {
+      fetchDataRef.current();
     }
     if (type === 'scan-progress') {
-      if (data?.status === 'started') setRefreshing(true);
-      if (data?.status === 'completed' || data?.status === 'error') setRefreshing(false);
+      if (data?.status === 'started') { if (!refreshing) startCountdown(); }
+      if (data?.status === 'completed' || data?.status === 'error') stopCountdown();
     }
   }, [lastMessage]);
 
   const handleRefresh = async () => {
-    setRefreshing(true);
+    startCountdown();
     try {
       await api.refreshHotspots();
     } catch (err) {
       console.error('Refresh failed:', err);
-    } finally {
-      setRefreshing(false);
+      stopCountdown();
     }
   };
 
@@ -228,7 +285,7 @@ export default function Dashboard() {
           className="btn-primary flex items-center gap-2"
         >
           <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-          {refreshing ? '扫描中...' : '立即扫描'}
+          {refreshing ? `扫描中... ${countdown}s` : '立即扫描'}
         </button>
       </div>
 
@@ -270,7 +327,7 @@ export default function Dashboard() {
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { setSearchQuery(searchInput.trim()); setPage(1); } }}
-              placeholder="搜索热点，如：GPT-5、DeepSeek、AI编程..."
+              placeholder="在已抓取的热点中筛选..."
               className="input-dark w-full pl-10 pr-10 text-sm"
             />
             {searchInput && (
@@ -319,6 +376,8 @@ export default function Dashboard() {
             <option value="web">Web</option>
             <option value="twitter">Twitter</option>
             <option value="rss">RSS</option>
+            <option value="bilibili">B站</option>
+            <option value="weibo">微博</option>
           </select>
           <select
             className="input-dark w-auto text-sm"
@@ -330,15 +389,7 @@ export default function Dashboard() {
             <option value="5">⭐ 中等 (≥5)</option>
             <option value="3">📌 低热 (≥3)</option>
           </select>
-          <label className="flex items-center gap-2 text-sm text-slate-500 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={filters.verified_only}
-              onChange={e => { setFilters(f => ({ ...f, verified_only: e.target.checked })); setPage(1); }}
-              className="accent-aurora-cyan"
-            />
-            仅已验证
-          </label>
+
         </div>
       </div>
 

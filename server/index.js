@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
@@ -6,16 +6,18 @@ import { WebSocketServer } from 'ws';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: join(__dirname, '.env') });
+
 import { initDatabase } from './db/init.js';
 import { setWss } from './services/notifier.js';
-import { startScheduler } from './services/scheduler.js';
+import { startScheduler, startCleanupScheduler, cleanOldHotspots } from './services/scheduler.js';
 
 import keywordsRouter from './routes/keywords.js';
 import hotspotsRouter from './routes/hotspots.js';
 import notificationsRouter from './routes/notifications.js';
 import settingsRouter from './routes/settings.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 
 async function main() {
@@ -40,6 +42,12 @@ async function main() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
+  // 手动触发清理旧热点
+  app.post('/api/cleanup', (req, res) => {
+    const result = cleanOldHotspots();
+    res.json({ status: 'ok', ...result });
+  });
+
   // 生产环境: 服务前端静态文件
   app.use(express.static(join(__dirname, '..', 'client', 'dist')));
   app.get('*', (req, res) => {
@@ -60,11 +68,15 @@ async function main() {
     ws.on('close', () => console.log('🔌 WebSocket client disconnected'));
   });
 
-  // 从数据库读取扫描间隔，默认 30 分钟
+  // 从数据库读取扫描间隔，默认 180 分钟（3小时）
   const { queryOne: q } = await import('./db/init.js');
   const intervalSetting = q("SELECT value FROM settings WHERE key = 'scan_interval'");
-  const scanInterval = parseInt(intervalSetting?.value) || 30;
+  const scanInterval = parseInt(intervalSetting?.value) || 180;
   startScheduler(scanInterval);
+  startCleanupScheduler();
+
+  // 启动时立即执行一次清理
+  cleanOldHotspots();
 
   server.listen(PORT, () => {
     console.log(`

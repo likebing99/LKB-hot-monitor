@@ -11,6 +11,9 @@ async function callOpenRouter(messages, apiKey, options = {}) {
   }
 
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+
     const response = await fetch(OPENROUTER_URL, {
       method: 'POST',
       headers: {
@@ -23,16 +26,20 @@ async function callOpenRouter(messages, apiKey, options = {}) {
         temperature: options.temperature ?? 0.3,
         max_tokens: options.maxTokens ?? 2000,
       }),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
+      clearTimeout(timer);
       const errText = await response.text();
       console.error(`OpenRouter API error ${response.status}:`, errText);
       return null;
     }
 
     const data = await response.json();
-    return data.choices?.[0]?.message?.content || null;
+    clearTimeout(timer);
+    const msg = data.choices?.[0]?.message;
+    return msg?.content || msg?.reasoning || null;
   } catch (err) {
     console.error('OpenRouter call error:', err.message);
     return null;
@@ -95,41 +102,50 @@ export async function analyzeHotspot(newsItem, keyword, apiKey, model) {
 }
 
 /**
- * 批量分析 + 去重合并
+ * 批量分析 + 去重合并（5 并发批量，大幅提速）
  */
-export async function analyzeAndDedupe(newsItems, keyword, apiKey, model) {
+export async function analyzeAndDedupe(newsItems, keyword, apiKey, model, { onItemReady } = {}) {
   if (!newsItems.length) return [];
 
-  // 取前15条分析（控制API调用量）
   const toAnalyze = newsItems.slice(0, 15);
-
+  const CONCURRENCY = 5;
   const analyzed = [];
-  for (const item of toAnalyze) {
-    const analysis = await analyzeHotspot(item, keyword, apiKey, model);
-    if (analysis.is_relevant && analysis.confidence >= 0.3) {
-      analyzed.push({
-        ...item,
-        summary: analysis.summary,
-        heat_score: analysis.heat_score,
-        is_verified: analysis.is_verified ? 1 : 0,
-        ai_analysis: JSON.stringify(analysis),
-      });
-    }
-    // 控制调用频率
-    await new Promise(r => setTimeout(r, 500));
-  }
+  const seenTitleKeys = new Set();
 
-  // 按热度排序
-  analyzed.sort((a, b) => b.heat_score - a.heat_score);
-
-  // 简单去重：标题相似的只保留热度最高的
-  const deduped = [];
-  for (const item of analyzed) {
-    const isDupe = deduped.some(d =>
-      d.title.toLowerCase().slice(0, 30) === item.title.toLowerCase().slice(0, 30)
+  for (let i = 0; i < toAnalyze.length; i += CONCURRENCY) {
+    const batch = toAnalyze.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(item => analyzeHotspot(item, keyword, apiKey, model))
     );
-    if (!isDupe) deduped.push(item);
+
+    for (let j = 0; j < results.length; j++) {
+      const result = results[j];
+      const item = batch[j];
+      if (result.status === 'fulfilled') {
+        const analysis = result.value;
+        if (analysis.is_relevant && analysis.confidence >= 0.3) {
+          const titleKey = item.title.toLowerCase().slice(0, 30);
+          if (seenTitleKeys.has(titleKey)) continue;
+          seenTitleKeys.add(titleKey);
+
+          const enriched = {
+            ...item,
+            summary: analysis.summary,
+            heat_score: analysis.heat_score,
+            is_verified: analysis.is_verified ? 1 : 0,
+            ai_analysis: JSON.stringify(analysis),
+          };
+          analyzed.push(enriched);
+          if (onItemReady) {
+            try { await onItemReady(enriched); } catch (e) { console.error('onItemReady error:', e.message); }
+          }
+        }
+      } else {
+        console.error(`AI analysis failed for "${item.title?.slice(0, 30)}":`, result.reason?.message);
+      }
+    }
   }
 
-  return deduped;
+  analyzed.sort((a, b) => b.heat_score - a.heat_score);
+  return analyzed;
 }

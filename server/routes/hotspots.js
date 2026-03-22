@@ -62,17 +62,26 @@ router.get('/:id', (req, res) => {
   res.json({ data: hotspot });
 });
 
-// 手动触发一次扫描
-router.post('/refresh', async (req, res) => {
-  const result = await runScan();
-  res.json(result);
+// 手动触发一次扫描（异步执行，立即返回）
+router.post('/refresh', (req, res) => {
+  // 异步启动扫描，不等待完成
+  runScan().catch(err => console.error('Manual scan error:', err));
+  res.json({ status: 'started' });
 });
 
 // 获取统计数据
 router.get('/stats/overview', (req, res) => {
   const totalHotspots = queryOne("SELECT COUNT(*) as count FROM hotspots")?.count || 0;
+  
+  // Compute today's date range in China time (UTC+8) using JavaScript
+  const now = new Date();
+  const chinaOffset = 8 * 60 * 60 * 1000;
+  const chinaDate = new Date(now.getTime() + chinaOffset);
+  const todayStr = chinaDate.toISOString().slice(0, 10); // YYYY-MM-DD
+  // created_at is stored via SQLite CURRENT_TIMESTAMP (UTC), so convert to UTC+8 for comparison
   const todayHotspots = queryOne(
-    "SELECT COUNT(*) as count FROM hotspots WHERE date(created_at) = date('now')"
+    "SELECT COUNT(*) as count FROM hotspots WHERE substr(datetime(created_at, '+8 hours'), 1, 10) = ?",
+    [todayStr]
   )?.count || 0;
   const avgScore = queryOne("SELECT AVG(heat_score) as avg FROM hotspots")?.avg || 0;
   const topSources = queryAll(
