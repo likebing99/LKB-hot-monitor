@@ -1,5 +1,73 @@
 # 更新日志 (CHANGELOG)
 
+## V3.0 — AI 审核精准化与体验升级 (2026-03-23)
+
+**相比 V2.1 的变更：**
+
+### AI 审核准确度优化
+
+- **查询扩展 (Query Expansion)**：扫描时 AI 自动为关键词生成 5-8 个语义变体（如 "Agentic Coding" → "代理编程"、"智能体编程"、"AI Agent Coding" 等），多变体并行搜索后合并去重，大幅提升召回率
+- **AI 分析 Prompt 重写**：新增 `relevance_type`（direct/indirect/none）、`relevance_explanation`、`keyword_mentioned` 三个结构化字段，替代原有模糊的"是否相关"判定
+- **严格判定规则**：同名不同领域的人/事物判定为无关；仅在背景中一笔带过的提及判定为无关；个人闲聊/段子无新闻价值判定为无关
+- **过滤阈值收紧**：confidence ≥ 0.6（原 0.3）、heat_score ≥ 3、relevance_type ≠ none；间接相关且未提及关键词的内容直接过滤
+- **AI 失败安全策略**：AI 分析失败时默认 `is_relevant: false`（原默认 true），避免垃圾内容混入
+- **JSON 解析容错**：修复 AI 返回 `ttrue`/`ffalse` 打字错误导致 JSON 解析失败的问题
+- **max_tokens 提升**：AI 请求 max_tokens 从 2000 提升至 16000，解决推理模型内部消耗 token 导致输出截断
+
+### 数据源质量门槛
+
+- **B站质量门槛**：播放量 < 1000 的视频直接跳过
+- **微博质量门槛**：互动总量 < 20 或内容长度 < 50 的微博直接跳过
+- **Web/RSS 质量门槛**：标题 < 10 字或摘要 < 20 字的内容直接跳过
+- **Twitter 质量门槛**：likes < 50、retweets < 20、views < 2000、文本 < 100 字的推文跳过；纯回复推文（以 @ 开头）跳过
+- **RSS 标题过滤**：标题长度 < 10 的 RSS 条目直接丢弃
+
+### 通知系统优化
+
+- **高热度通知过滤**：仅 heat_score ≥ 7 的热点才会创建通知推送，减少低价值打扰
+- **清空通知接口**：新增 `DELETE /api/notifications/all` 接口，支持一键清空全部通知
+- **历史通知清理**：清除了此前累积的全部旧通知数据
+
+### 仪表盘体验提升
+
+- **相关性标签**：热点卡片新增"相关性"文字标签，与 AI 置信度百分比配合显示
+- **排序文案修正**：排序按钮"最新发现"更名为"最新收录"，语义更准确
+- **热度筛选宽度优化**：热度范围输入框宽度调整为 w-16，兼顾显示与紧凑
+- **统计数据修正**：仪表盘统计卡片（今日热点、总热点数、平均热度）查询加入 `WHERE is_verified = 1`，只统计已验证热点
+
+### 设置页面精简
+
+- **移除敏感配置项**：删除「AI 配置」（OpenRouter API Key、AI 模型选择）、「API 密钥」（Twitter API Key）、「扫描设置」（扫描间隔）三个板块
+- **仅保留邮件通知**：设置页面只保留「邮件通知」板块（SMTP 配置 + 通知邮箱）
+
+### 扫描状态提示 (PushStatusBar)
+
+- **推送中指示器**：扫描期间 AI 分析阶段显示琥珀色旋转"推送中"指示条，解决扫描倒计时结束后页面看似无反应的体验问题
+- **推送完毕提示**：扫描完成后显示翠绿色"推送完毕 ✓" 提示，3 秒后自动消失
+- **WebSocket 联动**：PushStatusBar 与后端 scan-progress 事件实时联动（started → pushing → done → idle）
+
+### 诊断工具
+
+- **评测脚本 eval-prompt.mjs**：支持对比新旧 Prompt 过滤效果，可指定 `--dry-run` 和 `--sample N` 参数
+- **过滤诊断脚本 diagnose-filtered.mjs**：逐条展示搜索结果在每个过滤阶段（新鲜度 → AI 分析 → AI 过滤 → 源级质量 → 去重）的通过/拒绝情况及原因
+
+### 修改文件清单
+
+| 文件 | 变更说明 |
+|------|---------|
+| `server/services/ai.js` | 重写：Query Expansion、新 Prompt、passesRelevanceFilter、JSON 容错、max_tokens 提升 |
+| `server/services/scheduler.js` | 集成查询扩展、变体传递、通知 heat_score ≥ 7 过滤 |
+| `server/services/crawler.js` | 新增 B站/微博/Web 质量门槛 |
+| `server/services/rss.js` | 新增标题长度 ≥ 10 过滤 |
+| `server/routes/hotspots.js` | 统计查询加入 is_verified = 1 条件 |
+| `server/routes/notifications.js` | 新增 DELETE /all 清空通知接口 |
+| `server/eval-prompt.mjs` | 新增：AI Prompt 评测脚本 |
+| `server/diagnose-filtered.mjs` | 新增：过滤诊断脚本 |
+| `client/src/pages/Dashboard.jsx` | PushStatusBar 组件、相关性标签、排序文案、热度筛选宽度 |
+| `client/src/pages/Settings.jsx` | 精简为仅保留邮件通知板块 |
+
+---
+
 ## V2.1 — 排序修复与交互体验优化 (2026-03-23)
 
 **相比 V2.0 的变更：**

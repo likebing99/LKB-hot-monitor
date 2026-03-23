@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { crawlWeb } from './crawler.js';
 import { searchTwitter } from './twitter.js';
 import { fetchRSSFeeds } from './rss.js';
-import { analyzeAndDedupe } from './ai.js';
+import { analyzeAndDedupe, expandKeyword, clearExpansionCache } from './ai.js';
 import { queryAll, runSql, queryOne } from '../db/init.js';
 import { sendNotification, notifyWebSocket } from './notifier.js';
 
@@ -66,26 +66,53 @@ export async function runScan() {
     for (const kw of keywords) {
       notifyWebSocket('scan-progress', { status: 'scanning', keyword: kw.keyword });
 
-      // 多源并行抓取
-      const [webResults, twitterResults, rssResults] = await Promise.allSettled([
-        crawlWeb(kw.keyword),
-        searchTwitter(kw.keyword, twitterKey),
-        fetchRSSFeeds(kw.keyword),
-      ]);
+      // ─── Query Expansion: 生成查询变体 ───
+      const variants = await expandKeyword(kw.keyword, apiKey, aiModel);
+      // 用主关键词 + 前2个变体分别搜索（避免过多请求）
+      const searchQueries = variants.slice(0, 3);
 
-      const web = webResults.status === 'fulfilled' ? webResults.value : [];
-      const twitter = twitterResults.status === 'fulfilled' ? twitterResults.value : [];
-      const rss = rssResults.status === 'fulfilled' ? rssResults.value : [];
+      // 多源并行抓取（每个查询变体都搜一遍，合并去重）
+      const allWeb = [];
+      const allTwitter = [];
+      const allRss = [];
+      const seenTitles = new Set();
 
-      if (webResults.status === 'rejected') console.error(`  ❌ Web crawl failed for "${kw.keyword}":`, webResults.reason?.message);
-      if (twitterResults.status === 'rejected') console.error(`  ❌ Twitter search failed for "${kw.keyword}":`, twitterResults.reason?.message);
-      if (rssResults.status === 'rejected') console.error(`  ❌ RSS fetch failed for "${kw.keyword}":`, rssResults.reason?.message);
+      const addUnique = (arr, items) => {
+        for (const item of items) {
+          const key = (item.title || '').toLowerCase().slice(0, 40);
+          if (!seenTitles.has(key)) {
+            seenTitles.add(key);
+            arr.push(item);
+          }
+        }
+      };
+
+      for (const q of searchQueries) {
+        const [webResults, twitterResults, rssResults] = await Promise.allSettled([
+          crawlWeb(q),
+          searchTwitter(q, twitterKey),
+          fetchRSSFeeds(q),
+        ]);
+
+        if (webResults.status === 'fulfilled') addUnique(allWeb, webResults.value);
+        else console.error(`  ❌ Web crawl failed for "${q}":`, webResults.reason?.message);
+
+        if (twitterResults.status === 'fulfilled') addUnique(allTwitter, twitterResults.value);
+        else console.error(`  ❌ Twitter search failed for "${q}":`, twitterResults.reason?.message);
+
+        if (rssResults.status === 'fulfilled') addUnique(allRss, rssResults.value);
+        else console.error(`  ❌ RSS fetch failed for "${q}":`, rssResults.reason?.message);
+      }
+
+      const web = allWeb;
+      const twitter = allTwitter;
+      const rss = allRss;
 
       scanLog.web += web.length;
       scanLog.twitter += twitter.length;
       scanLog.rss += rss.length;
 
-      console.log(`  📊 "${kw.keyword}" sources: web=${web.length}, twitter=${twitter.length}, rss=${rss.length}`);
+      console.log(`  📊 "${kw.keyword}" (${searchQueries.length} queries) sources: web=${web.length}, twitter=${twitter.length}, rss=${rss.length}`);
 
       const allResults = [...web, ...twitter, ...rss];
 
@@ -105,6 +132,55 @@ export async function runScan() {
 
       // AI 分析 + 逐条实时推送
       const onItemReady = async (item) => {
+        // Twitter 来源二次质量校验：必须满足互动门槛
+        if (item.origin === 'twitter') {
+          const eng = item.engagement || {};
+          const likes = eng.likes || 0;
+          const retweets = eng.retweets || 0;
+          const views = eng.views || 0;
+          const textLen = (item.snippet || item.title || '').length;
+          if (likes < 50 || retweets < 20 || views < 2000 || textLen < 100) {
+            console.log(`  🚫 Skipped low-quality tweet: likes=${likes} rt=${retweets} views=${views} len=${textLen} "${item.title?.slice(0, 40)}"`);
+            return;
+          }
+          // 过滤纯回复（以 @ 开头）
+          const text = (item.snippet || item.title || '').trimStart();
+          if (text.startsWith('@')) {
+            console.log(`  🚫 Skipped reply tweet: "${item.title?.slice(0, 40)}"`);
+            return;
+          }
+        }
+
+        // B站来源二次校验：播放量门槛
+        if (item.origin === 'bilibili') {
+          const views = item.engagement?.views || 0;
+          if (views < 1000) {
+            console.log(`  🚫 Skipped low-view bilibili: views=${views} "${item.title?.slice(0, 40)}"`);
+            return;
+          }
+        }
+
+        // 微博来源二次校验：互动量门槛
+        if (item.origin === 'weibo') {
+          const eng = item.engagement || {};
+          const totalEng = (eng.likes || 0) + (eng.replies || 0) + (eng.retweets || 0);
+          const textLen = (item.snippet || item.title || '').length;
+          if (totalEng < 20 || textLen < 50) {
+            console.log(`  🚫 Skipped low-quality weibo: engagement=${totalEng} len=${textLen} "${item.title?.slice(0, 40)}"`);
+            return;
+          }
+        }
+
+        // Web/RSS 来源二次校验：内容长度门槛
+        if (item.origin === 'web' || item.origin === 'rss') {
+          const titleLen = (item.title || '').length;
+          const snippetLen = (item.snippet || '').length;
+          if (titleLen < 10 || snippetLen < 20) {
+            console.log(`  🚫 Skipped thin-content ${item.origin}: title=${titleLen} snippet=${snippetLen} "${item.title?.slice(0, 40)}"`);
+            return;
+          }
+        }
+
         // 按 title+source 或 source_url 去重
         const existing = queryOne(
           "SELECT id FROM hotspots WHERE (title = ? AND source = ?) OR (source_url = ? AND source_url != '')",
@@ -157,15 +233,18 @@ export async function runScan() {
           published_at: item.time || new Date().toISOString(),
         });
 
-        if (kw.type === 'keyword') {
+        if (kw.type === 'keyword' && item.heat_score >= 7) {
           await sendNotification({ id: result.lastId, title: item.title, summary: item.summary, source: item.source, source_url: item.url, heat_score: item.heat_score, is_verified: item.is_verified }, emailSettings);
           runSql("INSERT INTO notifications (hotspot_id, type, status, sent_at) VALUES (?, 'ws', 'sent', datetime('now'))", [result.lastId]);
         }
       };
 
-      const analyzed = await analyzeAndDedupe(freshResults, kw.keyword, apiKey, aiModel, { onItemReady });
+      const analyzed = await analyzeAndDedupe(freshResults, kw.keyword, apiKey, aiModel, { onItemReady, variants });
       console.log(`  🤖 "${kw.keyword}": AI passed ${analyzed.length}/${freshResults.length} items`);
     }
+
+    // 清除查询扩展缓存
+    clearExpansionCache();
 
     notifyWebSocket('scan-progress', { status: 'completed', newItems: totalNew });
     const duration = Date.now() - startTime;

@@ -98,6 +98,7 @@ function HotspotCard({ item, rank }) {
             {confidence != null && (
               <span className="flex items-center gap-1 text-xs text-slate-500">
                 <Target size={12} className="text-aurora-cyan" />
+                <span>相关性</span>
                 <span className="text-slate-700 font-medium">{Math.round(confidence * 100)}%</span>
               </span>
             )}
@@ -200,30 +201,21 @@ function MultiSelect({ label, options, selected, onChange }) {
   );
 }
 
-function PushStatusBar() {
-  const [isPushing, setIsPushing] = useState(false);
-  const [isPushedAll, setIsPushedAll] = useState(false);
-
-  useEffect(() => {
-    if (window.pushStatusForDemo) {
-      setIsPushing(window.pushStatusForDemo.isPushing);
-      setIsPushedAll(window.pushStatusForDemo.isPushedAll);
-    }
-  });
-
-  if (isPushing) {
+function PushStatusBar({ status }) {
+  // status: 'idle' | 'pushing' | 'done'
+  if (status === 'pushing') {
     return (
-      <div className="flex items-center gap-2 py-2 px-4 mb-2 bg-yellow-50 border border-yellow-100 rounded-lg w-fit mx-auto animate-fade-in">
-        <Loader2 size={18} className="animate-spin text-yellow-500" />
-        <span className="text-sm text-yellow-700 font-medium">推送中...</span>
+      <div className="flex items-center gap-2 py-2.5 px-5 mb-3 bg-amber-50/80 border border-amber-200/60 rounded-xl w-fit mx-auto animate-fade-in backdrop-blur-sm">
+        <Loader2 size={18} className="animate-spin text-amber-500" />
+        <span className="text-sm text-amber-700 font-medium">推送中</span>
       </div>
     );
   }
-  if (isPushedAll) {
+  if (status === 'done') {
     return (
-      <div className="flex items-center gap-2 py-2 px-4 mb-2 bg-emerald-50 border border-emerald-100 rounded-lg w-fit mx-auto animate-fade-in">
+      <div className="flex items-center gap-2 py-2.5 px-5 mb-3 bg-emerald-50/80 border border-emerald-200/60 rounded-xl w-fit mx-auto animate-fade-in backdrop-blur-sm">
         <CheckCircle2 size={18} className="text-emerald-600" />
-        <span className="text-sm text-emerald-700 font-medium">已全部推送</span>
+        <span className="text-sm text-emerald-700 font-medium">推送完毕</span>
       </div>
     );
   }
@@ -259,6 +251,8 @@ export default function Dashboard() {
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [scanWarning, setScanWarning] = useState('');
+  const [pushStatus, setPushStatus] = useState('idle'); // 'idle' | 'pushing' | 'done'
+  const pushTimerRef = useRef(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -323,7 +317,10 @@ export default function Dashboard() {
   }, [stopCountdown]);
 
   useEffect(() => {
-    return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    };
   }, []);
 
   const filtersRef = useRef({ filters, searchQuery });
@@ -357,10 +354,21 @@ export default function Dashboard() {
       fetchDataRef.current();
     }
     if (type === 'scan-progress') {
-      if (data?.status === 'started') { if (!refreshing) startCountdown(); }
-      if (data?.status === 'completed' || data?.status === 'error') stopCountdown();
+      if (data?.status === 'started') {
+        if (!refreshing) startCountdown();
+        setPushStatus('pushing');
+        if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+      }
+      if (data?.status === 'completed' || data?.status === 'error') {
+        stopCountdown();
+        if (pushStatus === 'pushing') {
+          setPushStatus('done');
+          pushTimerRef.current = setTimeout(() => setPushStatus('idle'), 3000);
+        }
+      }
       if (data?.status === 'no_keywords') {
         stopCountdown();
+        setPushStatus('idle');
         setScanWarning('没有已启用的关键词，请先到「关键词管理」页面启用至少一个关键词');
         setTimeout(() => setScanWarning(''), 6000);
       }
@@ -514,7 +522,7 @@ export default function Dashboard() {
               placeholder="0"
               value={filters.min_score}
               onChange={e => { setFilters(f => ({ ...f, min_score: e.target.value })); setPage(1); }}
-              className="input-dark w-20 text-sm text-center"
+              className="input-dark w-16 text-sm text-center"
             />
             <span className="text-xs text-slate-400">—</span>
             <input
@@ -524,7 +532,7 @@ export default function Dashboard() {
               placeholder="10"
               value={filters.max_score}
               onChange={e => { setFilters(f => ({ ...f, max_score: e.target.value })); setPage(1); }}
-              className="input-dark w-20 text-sm text-center"
+              className="input-dark w-16 text-sm text-center"
             />
           </div>
           <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer select-none">
@@ -543,7 +551,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2">
             {[
               { value: 'published_at', label: '最新发布' },
-              { value: 'created_at', label: '最新发现' },
+              { value: 'created_at', label: '最新收录' },
               { value: 'engagement', label: '互动数据' },
               { value: 'confidence', label: '相关性最高' },
             ].map(opt => (
@@ -561,7 +569,7 @@ export default function Dashboard() {
       </div>
 
       {/* 推送状态提示 */}
-      <PushStatusBar />
+      <PushStatusBar status={pushStatus} />
 
       {/* Hotspot List */}
       {loading ? (

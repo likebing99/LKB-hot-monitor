@@ -29,7 +29,9 @@ const DEFAULT_FEEDS = [
 async function fetchFeed(feed) {
   try {
     const result = await parser.parseURL(feed.url);
-    return (result.items || []).slice(0, 10).map(item => ({
+    return (result.items || []).slice(0, 10)
+      .filter(item => (item.title || '').trim().length >= 10)
+      .map(item => ({
       title: item.title || '',
       snippet: item.contentSnippet?.slice(0, 300) || item.content?.slice(0, 300) || '',
       url: item.link || '',

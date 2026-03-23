@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
-import { Save, Key, Mail, Clock, Cpu } from 'lucide-react';
+import { Save, Mail } from 'lucide-react';
 import { TextGenerateEffect } from '../components/ui/TextGenerateEffect';
 
 export default function SettingsPage() {
@@ -38,80 +38,6 @@ export default function SettingsPage() {
   if (loading) return <div className="text-center py-20 text-slate-500">加载中...</div>;
 
   const sections = [
-    {
-      icon: Cpu,
-      title: 'AI 配置',
-      color: 'text-aurora-purple',
-      glow: '#059669',
-      fields: (
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className="text-sm text-slate-400 mb-1.5 block">OpenRouter API Key</label>
-            <input
-              type="password"
-              className="input-dark"
-              placeholder="sk-or-..."
-              value={settings.openrouter_api_key || ''}
-              onChange={e => update('openrouter_api_key', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-slate-400 mb-1.5 block">AI 模型</label>
-            <select
-              className="input-dark"
-              value={settings.ai_model || 'minimax/minimax-m2.5'}
-              onChange={e => update('ai_model', e.target.value)}
-            >
-              <option value="minimax/minimax-m2.5">MiniMax M2.5 (推荐)</option>
-              <option value="deepseek/deepseek-chat-v3-0324">DeepSeek V3 0324</option>
-              <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
-              <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-              <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
-              <option value="openai/gpt-4o">GPT-4o</option>
-              <option value="meta-llama/llama-3.1-70b-instruct">Llama 3.1 70B</option>
-            </select>
-          </div>
-        </div>
-      ),
-    },
-    {
-      icon: Key,
-      title: 'API 密钥',
-      color: 'text-aurora-cyan',
-      glow: '#16a34a',
-      fields: (
-        <div>
-          <label className="text-sm text-slate-400 mb-1.5 block">Twitter API Key (twitterapi.io)</label>
-          <input
-            type="password"
-            className="input-dark"
-            placeholder="输入 twitterapi.io API Key"
-            value={settings.twitter_api_key || ''}
-            onChange={e => update('twitter_api_key', e.target.value)}
-          />
-          <p className="text-xs text-slate-400 mt-1.5">可选 · 不配置则跳过 Twitter 数据源</p>
-        </div>
-      ),
-    },
-    {
-      icon: Clock,
-      title: '扫描设置',
-      color: 'text-aurora-green',
-      glow: '#22c55e',
-      fields: (
-        <div>
-          <label className="text-sm text-slate-400 mb-1.5 block">扫描间隔 (分钟)</label>
-          <input
-            type="number"
-            className="input-dark"
-            min="5"
-            max="1440"
-            value={settings.scan_interval || 30}
-            onChange={e => update('scan_interval', e.target.value)}
-          />
-        </div>
-      ),
-    },
     {
       icon: Mail,
       title: '邮件通知',
@@ -177,7 +103,7 @@ export default function SettingsPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <TextGenerateEffect words="系统设置" className="text-2xl font-bold text-gradient" />
-          <p className="text-sm text-slate-500 mt-1.5">配置 API 密钥和扫描参数</p>
+          <p className="text-sm text-slate-500 mt-1.5">配置邮件通知</p>
         </div>
         <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2">
           <Save size={16} />

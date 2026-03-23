@@ -106,7 +106,7 @@ router.get('/:id', (req, res) => {
 
 // 获取统计数据
 router.get('/stats/overview', (req, res) => {
-  const totalHotspots = queryOne("SELECT COUNT(*) as count FROM hotspots")?.count || 0;
+  const totalHotspots = queryOne("SELECT COUNT(*) as count FROM hotspots WHERE is_verified = 1")?.count || 0;
   
   // Compute today's date range in China time (UTC+8) using JavaScript
   const now = new Date();
@@ -115,10 +115,10 @@ router.get('/stats/overview', (req, res) => {
   const todayStr = chinaDate.toISOString().slice(0, 10); // YYYY-MM-DD
   // created_at is stored via SQLite CURRENT_TIMESTAMP (UTC), so convert to UTC+8 for comparison
   const todayHotspots = queryOne(
-    "SELECT COUNT(*) as count FROM hotspots WHERE substr(datetime(created_at, '+8 hours'), 1, 10) = ?",
+    "SELECT COUNT(*) as count FROM hotspots WHERE is_verified = 1 AND substr(datetime(created_at, '+8 hours'), 1, 10) = ?",
     [todayStr]
   )?.count || 0;
-  const avgScore = queryOne("SELECT AVG(heat_score) as avg FROM hotspots")?.avg || 0;
+  const avgScore = queryOne("SELECT AVG(heat_score) as avg FROM hotspots WHERE is_verified = 1")?.avg || 0;
   const topSources = queryAll(
     "SELECT source, COUNT(*) as count FROM hotspots GROUP BY source ORDER BY count DESC LIMIT 5"
   );

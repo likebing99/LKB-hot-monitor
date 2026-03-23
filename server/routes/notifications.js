@@ -50,4 +50,10 @@ router.put('/read-all', (req, res) => {
   res.json({ success: true });
 });
 
+// 清空全部通知
+router.delete('/all', (req, res) => {
+  runSql("DELETE FROM notifications");
+  res.json({ success: true });
+});
+
 export default router;

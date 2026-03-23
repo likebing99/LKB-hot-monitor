@@ -50,7 +50,7 @@ export async function searchBing(keyword, count = 10) {
       const snippet = ($el.find('.snippet').text() || $el.find('div.snippet, .description').text()).trim();
       const source = $el.find('.source').text().trim();
 
-      if (title && title.length > 5) {
+      if (title && title.length >= 10) {
         results.push({
           title,
           url: link.startsWith('http') ? link : `https://cn.bing.com${link}`,
@@ -70,7 +70,7 @@ export async function searchBing(keyword, count = 10) {
         const title = $el.find('h2 a, a.title').text().trim();
         const link = $el.find('h2 a, a.title').attr('href') || '';
 
-        if (title && title.length > 5) {
+        if (title && title.length >= 10) {
           results.push({
             title,
             url: link.startsWith('http') ? link : `https://cn.bing.com${link}`,
@@ -116,7 +116,7 @@ export async function searchGoogleNewsRSS(keyword, count = 10) {
       const pubDate = $el.find('pubDate').text().trim();
       const source = $el.find('source').text().trim();
 
-      if (title) {
+      if (title && title.length >= 10) {
         results.push({
           title,
           url: link,
@@ -169,7 +169,7 @@ export async function searchDuckDuckGo(keyword, count = 10) {
       const link = $el.find('a.result__a').attr('href') || $el.find('h2 a').attr('href') || '';
       const snippet = ($el.find('.result__snippet').text() || $el.find('a.result__snippet').text()).trim();
 
-      if (title && title.length > 5) {
+      if (title && title.length >= 10) {
         // DuckDuckGo 链接可能经过重定向编码
         let cleanUrl = link;
         if (link.includes('uddg=')) {
@@ -233,7 +233,7 @@ export async function searchBraveNews(keyword, count = 10) {
       const source = $el.find('.netloc, .source').text().trim();
       const time = $el.find('.published-date, time').text().trim();
 
-      if (title && title.length > 5) {
+      if (title && title.length >= 10) {
         results.push({
           title,
           url: link.startsWith('http') ? link : `https://search.brave.com${link}`,
@@ -254,7 +254,7 @@ export async function searchBraveNews(keyword, count = 10) {
         const link = $el.attr('href') || '';
 
         // 只取外部链接，排除 Brave 自身链接
-        if (title && title.length > 10 && link.startsWith('http') && !link.includes('brave.com')) {
+        if (title && title.length >= 15 && link.startsWith('http') && !link.includes('brave.com')) {
           results.push({
             title: title.slice(0, 120),
             url: link,
@@ -305,15 +305,22 @@ export async function searchBilibili(keyword, count = 10) {
         const spaceData = await spaceRes.json();
 
         if (spaceData.code === 0 && spaceData.data?.list?.vlist?.length > 0) {
-          const results = spaceData.data.list.vlist.slice(0, count).map(v => ({
-            title: v.title,
-            url: `https://www.bilibili.com/video/${v.bvid}`,
-            snippet: v.description || '',
-            source: `B站·${uname}`,
-            time: v.created ? new Date(v.created * 1000).toISOString() : '',
-            origin: 'bilibili',
-          }));
-          console.log(`  📺 Bilibili (UP主 ${uname}): ${results.length} videos`);
+          const rawList = spaceData.data.list.vlist.slice(0, count);
+          const results = rawList
+            .filter(v => (v.play || 0) >= 500)
+            .map(v => ({
+              title: v.title,
+              url: `https://www.bilibili.com/video/${v.bvid}`,
+              snippet: v.description || '',
+              source: `B站·${uname}`,
+              time: v.created ? new Date(v.created * 1000).toISOString() : '',
+              origin: 'bilibili',
+              engagement: {
+                views: v.play || 0,
+                comments: v.comment || 0,
+              },
+            }));
+          console.log(`  📺 Bilibili (UP主 ${uname}): ${results.length}/${rawList.length} videos passed play>=500`);
           return results;
         }
       }
@@ -330,16 +337,24 @@ export async function searchBilibili(keyword, count = 10) {
       return [];
     }
 
-    const results = (searchData.data?.result || []).slice(0, count).map(item => ({
-      title: (item.title || '').replace(/<[^>]+>/g, ''),
-      url: `https://www.bilibili.com/video/${item.bvid}`,
-      snippet: item.description || '',
-      source: item.author || 'B站',
-      time: item.pubdate ? new Date(item.pubdate * 1000).toISOString() : '',
-      origin: 'bilibili',
-    }));
+    const rawResults = (searchData.data?.result || []).slice(0, count);
+    const results = rawResults
+      .filter(item => (item.play || 0) >= 1000)
+      .map(item => ({
+        title: (item.title || '').replace(/<[^>]+>/g, ''),
+        url: `https://www.bilibili.com/video/${item.bvid}`,
+        snippet: item.description || '',
+        source: item.author || 'B站',
+        time: item.pubdate ? new Date(item.pubdate * 1000).toISOString() : '',
+        origin: 'bilibili',
+        engagement: {
+          views: item.play || 0,
+          danmaku: item.video_review || 0,
+          favorites: item.favorites || 0,
+        },
+      }));
 
-    console.log(`  📺 Bilibili: ${results.length} results for "${keyword}"`);
+    console.log(`  📺 Bilibili: ${results.length}/${rawResults.length} results passed play>=1000 for "${keyword}"`);
     return results;
   } catch (err) {
     console.error('Bilibili search error:', err.message);
@@ -389,7 +404,7 @@ export async function searchWeibo(keyword, count = 10) {
                   const mblog = c.mblog;
                   if (!mblog) continue;
                   const text = (mblog.text || '').replace(/<[^>]+>/g, '').trim();
-                  if (text.length < 20) continue;
+                  if (text.length < 50) continue;
                   results.push({
                     title: text.slice(0, 120),
                     url: `https://m.weibo.cn/detail/${mblog.id}`,
@@ -430,7 +445,10 @@ export async function searchWeibo(keyword, count = 10) {
       const mblog = card.mblog;
       if (!mblog) continue;
       const text = (mblog.text || '').replace(/<[^>]+>/g, '').trim();
-      if (text.length < 20) continue;
+      if (text.length < 50) continue;
+      // 互动量门槛：赞+评+转 >= 20
+      const totalEng = (mblog.attitudes_count || 0) + (mblog.comments_count || 0) + (mblog.reposts_count || 0);
+      if (totalEng < 20) continue;
       const author = mblog.user?.screen_name || '';
       results.push({
         title: text.slice(0, 120),
