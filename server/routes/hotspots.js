@@ -4,9 +4,9 @@ import { runScan } from '../services/scheduler.js';
 
 const router = Router();
 
-// 获取热点列表（分页 + 筛选）
+// 获取热点列表（分页 + 筛选 + 排序）
 router.get('/', (req, res) => {
-  const { page = 1, limit = 20, keyword_id, source, min_score, verified_only, search } = req.query;
+  const { page = 1, limit = 20, keyword_id, source, min_score, max_score, verified_only, search, sort, time_range, has_url } = req.query;
   const offset = (Math.max(1, Number(page)) - 1) * Number(limit);
 
   let sql = "SELECT h.*, k.keyword as keyword_text FROM hotspots h LEFT JOIN keywords k ON h.keyword_id = k.id WHERE 1=1";
@@ -18,26 +18,61 @@ router.get('/', (req, res) => {
     params.push(pattern, pattern);
   }
   if (keyword_id) {
-    sql += " AND h.keyword_id = ?";
-    params.push(Number(keyword_id));
+    const ids = keyword_id.split(',').map(Number).filter(n => !isNaN(n) && n > 0);
+    if (ids.length) {
+      sql += ` AND h.keyword_id IN (${ids.map(() => '?').join(',')})`;
+      params.push(...ids);
+    }
   }
   if (source) {
-    sql += " AND h.source = ?";
-    params.push(source);
+    const sources = source.split(',').map(s => s.trim()).filter(Boolean);
+    if (sources.length) {
+      sql += ` AND h.source IN (${sources.map(() => '?').join(',')})`;
+      params.push(...sources);
+    }
   }
   if (min_score) {
     sql += " AND h.heat_score >= ?";
     params.push(Number(min_score));
   }
+  if (max_score) {
+    sql += " AND h.heat_score <= ?";
+    params.push(Number(max_score));
+  }
   if (verified_only === '1') {
     sql += " AND h.is_verified = 1";
+  }
+  if (has_url === '1') {
+    sql += " AND h.source_url IS NOT NULL AND h.source_url != ''";
+  }
+  if (time_range && time_range !== 'all') {
+    const now = new Date();
+    const chinaOffset = 8 * 60 * 60 * 1000;
+    const chinaNow = new Date(now.getTime() + chinaOffset);
+    let daysBack = 0;
+    if (time_range === 'today') daysBack = 0;
+    else if (time_range === '3days') daysBack = 2;
+    else if (time_range === '7days') daysBack = 6;
+    const cutoffChina = new Date(Date.UTC(chinaNow.getUTCFullYear(), chinaNow.getUTCMonth(), chinaNow.getUTCDate() - daysBack, 0, 0, 0));
+    const cutoffUTC = new Date(cutoffChina.getTime() - chinaOffset);
+    sql += " AND h.created_at >= ?";
+    params.push(cutoffUTC.toISOString().replace('T', ' ').slice(0, 19));
   }
 
   // 总数
   const countSql = sql.replace("SELECT h.*, k.keyword as keyword_text", "SELECT COUNT(*) as total");
   const total = queryOne(countSql, params)?.total || 0;
 
-  sql += " ORDER BY h.created_at DESC LIMIT ? OFFSET ?";
+  // 排序（sort 值仅作为 map key 查找，安全无注入风险）
+  const sortOptions = {
+    created_at: 'h.created_at DESC',
+    published_at: 'COALESCE(h.published_at, h.created_at) DESC',
+    heat_score: 'h.heat_score DESC, h.created_at DESC',
+    confidence: "CAST(COALESCE(json_extract(h.ai_analysis, '$.confidence'), 0) AS REAL) DESC, h.created_at DESC",
+    engagement: "(COALESCE(json_extract(h.raw_data, '$.engagement.likes'), 0) + COALESCE(json_extract(h.raw_data, '$.engagement.retweets'), 0) * 3 + COALESCE(json_extract(h.raw_data, '$.engagement.views'), 0) * 0.001) DESC, h.created_at DESC",
+  };
+  const orderBy = sortOptions[sort] || sortOptions.created_at;
+  sql += ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
   params.push(Number(limit), offset);
 
   const hotspots = queryAll(sql, params);
@@ -52,7 +87,14 @@ router.get('/', (req, res) => {
   });
 });
 
-// 获取热点详情
+// 手动触发一次扫描（异步执行，立即返回）
+router.post('/refresh', (req, res) => {
+  // 异步启动扫描，不等待完成
+  runScan().catch(err => console.error('Manual scan error:', err));
+  res.json({ status: 'started' });
+});
+
+// 获取热点详情（动态路由放在具体路由之后）
 router.get('/:id', (req, res) => {
   const hotspot = queryOne(
     "SELECT h.*, k.keyword as keyword_text FROM hotspots h LEFT JOIN keywords k ON h.keyword_id = k.id WHERE h.id = ?",
@@ -60,13 +102,6 @@ router.get('/:id', (req, res) => {
   );
   if (!hotspot) return res.status(404).json({ error: '热点不存在' });
   res.json({ data: hotspot });
-});
-
-// 手动触发一次扫描（异步执行，立即返回）
-router.post('/refresh', (req, res) => {
-  // 异步启动扫描，不等待完成
-  runScan().catch(err => console.error('Manual scan error:', err));
-  res.json({ status: 'started' });
 });
 
 // 获取统计数据

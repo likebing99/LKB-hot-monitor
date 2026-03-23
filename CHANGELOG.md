@@ -1,5 +1,39 @@
 # 更新日志 (CHANGELOG)
 
+## V2.1 — 排序修复与交互体验优化 (2026-03-23)
+
+**相比 V2.0 的变更：**
+
+### Bug 修复
+
+- **扫描按钮闪退修复**：修复 `/api/hotspots/refresh` 路由被 `/:id` 拦截的路由顺序问题；新增所有关键词未启用时的 `no_keywords` 提示，避免扫描无效执行
+- **通知数据读取修复**：`getNotifications` 改为手动 `fetch()` 调用，解决 `request()` 自动解包导致 `unreadCount`、`pagination` 丢失的问题
+- **通知内容为空修复**：修复 `runSql()` 中 `saveDatabase()` 在 `last_insert_rowid()` 之前执行，导致通知关联的 `hotspot_id` 始终为 0 的问题；后端过滤 `hotspot_id > 0` 的记录，前端通知卡片显示关联热点标题、摘要、热度与原文链接
+- **发布时间排序修复**：修复 Twitter 格式日期（`Sun Mar 15...`）按字母排序而非时间排序的问题；入库时统一转为 ISO 格式，启动时自动迁移历史非 ISO 日期数据
+
+### 仪表盘交互优化
+
+- **排名标记**：热点卡片左侧数字改为显示当前排序下的排名（#1, #2, #3...），前三名高亮
+- **热度标签**：每张热点卡片标签行新增「热度 X」标签（橙色样式），与筛选栏热度范围筛选对应，方便用户理解热度评分
+- **排序文案调整**：「热度综合」排序按钮更名为「互动数据」，避免与 AI 热度评分概念混淆；该排序依据 `likes + retweets×3 + views×0.001` 计算
+- **无关键词扫描提示**：当所有关键词均未启用时，点击扫描按钮会显示警告提示
+
+### 修改文件清单
+
+| 文件 | 变更说明 |
+|------|---------|
+| `client/src/pages/Dashboard.jsx` | ScoreBadge 改为排名显示；新增热度标签；排序按钮「热度综合」→「互动数据」；新增无关键词扫描警告 |
+| `client/src/pages/Notifications.jsx` | 通知卡片可点击，显示热点标题/摘要/热度/原文链接 |
+| `client/src/components/Layout.jsx` | 通知未读数改用 `unreadCount` 字段 |
+| `client/src/lib/api.js` | `getNotifications` 和 `getHotspots` 改为手动 fetch 保留完整响应结构 |
+| `server/db/init.js` | 修复 `runSql()` lastId 顺序；新增历史日期 ISO 格式迁移 |
+| `server/routes/hotspots.js` | 修复路由顺序（refresh 在 :id 之前） |
+| `server/routes/notifications.js` | 过滤 hotspot_id=0 记录；修复 count SQL |
+| `server/services/scheduler.js` | 新增 no_keywords 早退；入库时 published_at 统一转 ISO |
+| `server/test-sort.js` | 新增排序验证测试（10 项全通过） |
+
+---
+
 ## V2.0 — 多源扩展与稳定性增强 (2026-03-23)
 
 **相比 V1.1 的变更：**

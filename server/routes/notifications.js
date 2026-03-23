@@ -3,32 +3,33 @@ import { queryAll, queryOne, runSql } from '../db/init.js';
 
 const router = Router();
 
-// 获取通知列表
+// 获取通知列表（排除无效 hotspot_id=0 的记录）
 router.get('/', (req, res) => {
   const { page = 1, limit = 20, unread_only } = req.query;
   const offset = (Math.max(1, Number(page)) - 1) * Number(limit);
 
-  let sql = `
+  let where = "WHERE n.hotspot_id > 0";
+  const params = [];
+
+  if (unread_only === '1') {
+    where += " AND n.is_read = 0";
+  }
+
+  const countSql = `SELECT COUNT(*) as total FROM notifications n ${where}`;
+  const total = queryOne(countSql, params)?.total || 0;
+
+  const sql = `
     SELECT n.*, h.title as hotspot_title, h.summary as hotspot_summary,
            h.heat_score, h.source_url
     FROM notifications n
     LEFT JOIN hotspots h ON n.hotspot_id = h.id
-    WHERE 1=1
+    ${where}
+    ORDER BY n.created_at DESC LIMIT ? OFFSET ?
   `;
-  const params = [];
-
-  if (unread_only === '1') {
-    sql += " AND n.is_read = 0";
-  }
-
-  const countSql = sql.replace(/SELECT .+ FROM/, "SELECT COUNT(*) as total FROM");
-  const total = queryOne(countSql, params)?.total || 0;
-
-  sql += " ORDER BY n.created_at DESC LIMIT ? OFFSET ?";
   params.push(Number(limit), offset);
 
   const notifications = queryAll(sql, params);
-  const unreadCount = queryOne("SELECT COUNT(*) as count FROM notifications WHERE is_read = 0")?.count || 0;
+  const unreadCount = queryOne("SELECT COUNT(*) as count FROM notifications WHERE is_read = 0 AND hotspot_id > 0")?.count || 0;
 
   res.json({
     data: notifications,

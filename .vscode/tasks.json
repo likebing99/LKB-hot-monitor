@@ -4,7 +4,7 @@
 		{
 			"label": "Backend",
 			"type": "shell",
-			"command": "$existingProcIds = @(Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($procId in $existingProcIds) { taskkill /F /PID $procId *> $null }; $global:LASTEXITCODE = 0; Start-Sleep 2; Set-Location D:\\LKB-hot-monitor\\server; node .\\index.js",
+			"command": "$existingProcIds = @(Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($procId in $existingProcIds) { try { taskkill /F /PID $procId *> $null } catch {} }; $global:LASTEXITCODE = 0; Start-Sleep 2; Set-Location D:\\LKB-hot-monitor\\server; node .\\index.js; if ($LASTEXITCODE -ne 0) { Write-Host \"Node exited with code $LASTEXITCODE\" }",
 			"isBackground": true,
 			"problemMatcher": []
 		},
@@ -14,6 +14,24 @@
 			"command": "Set-Location D:\\LKB-hot-monitor\\client; npx vite --host",
 			"isBackground": true,
 			"problemMatcher": []
+		},
+		{
+			"label": "Backend",
+			"type": "shell",
+			"command": "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep 2; Set-Location D:\\LKB-hot-monitor\\server; node index.js",
+			"isBackground": true
+		},
+		{
+			"label": "Frontend Dev",
+			"type": "shell",
+			"command": "Set-Location D:\\LKB-hot-monitor\\client; npx vite --host",
+			"isBackground": true
+		},
+		{
+			"label": "Backend",
+			"type": "shell",
+			"command": "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep 2; Set-Location D:\\LKB-hot-monitor\\server; node index.js",
+			"isBackground": true
 		}
 	]
 }

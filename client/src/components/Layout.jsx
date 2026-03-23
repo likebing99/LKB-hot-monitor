@@ -11,7 +11,7 @@ export default function Layout() {
 
   useEffect(() => {
     api.getNotifications({ unread_only: true, limit: 1 }).then(res => {
-      setUnread(res.total || 0);
+      setUnread(res.unreadCount || 0);
     }).catch(() => {});
   }, []);
 

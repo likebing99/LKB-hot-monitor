@@ -1,14 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../lib/api';
-import { RefreshCw, TrendingUp, Newspaper, BarChart3, ExternalLink, Shield, ShieldAlert, Filter, Heart, MessageCircle, Eye, Repeat2, Target, Search, X } from 'lucide-react';
+import { RefreshCw, TrendingUp, Newspaper, BarChart3, ExternalLink, Shield, ShieldAlert, Filter, Heart, MessageCircle, Eye, Repeat2, Target, Search, X, ChevronDown, ArrowUpDown, Link2 } from 'lucide-react';
+import { CheckCircle2, Loader2 } from 'lucide-react';
 import { SpotlightCard } from '../components/ui/Spotlight';
 import { TextGenerateEffect } from '../components/ui/TextGenerateEffect';
 import { Meteors } from '../components/ui/Meteors';
 
-function ScoreBadge({ score }) {
-  const cls = score >= 8 ? 'score-high' : score >= 5 ? 'score-medium' : 'score-low';
-  return <div className={`score-badge ${cls}`}>{score}</div>;
+function ScoreBadge({ rank }) {
+  const cls = rank <= 3 ? 'score-high' : rank <= 10 ? 'score-medium' : 'score-low';
+  return <div className={`score-badge ${cls}`} title={`当前排名 #${rank}`}>{rank}</div>;
 }
 
 function SourceTag({ source }) {
@@ -26,7 +27,7 @@ function SourceTag({ source }) {
   );
 }
 
-function HotspotCard({ item }) {
+function HotspotCard({ item, rank }) {
   let rawData = null;
   let aiData = null;
   try { rawData = item.raw_data ? JSON.parse(item.raw_data) : null; } catch {}
@@ -46,7 +47,6 @@ function HotspotCard({ item }) {
 
   return (
     <SpotlightCard className="glass-card p-5 animate-fade-in">
-      {/* External link */}
       {item.source_url && (
         <a
           href={item.source_url}
@@ -60,7 +60,7 @@ function HotspotCard({ item }) {
       )}
 
       <div className="relative z-10 flex items-start gap-4 pr-8">
-        <ScoreBadge score={item.heat_score} />
+        <ScoreBadge rank={rank} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <SourceTag source={item.source} />
@@ -78,6 +78,11 @@ function HotspotCard({ item }) {
                 <ShieldAlert size={12} /> 未验证
               </span>
             )}
+            {item.heat_score != null && (
+              <span className="text-xs px-2 py-0.5 rounded-full border bg-orange-500/10 text-orange-600 border-orange-500/20 font-medium">
+                热度 {item.heat_score}
+              </span>
+            )}
             <span className="text-xs text-slate-600 ml-auto whitespace-nowrap">
               {item.published_at ? new Date(item.published_at).toLocaleString('zh-CN') : ''}
             </span>
@@ -89,7 +94,6 @@ function HotspotCard({ item }) {
             <p className="text-sm text-slate-500 leading-relaxed line-clamp-3 mb-3">{item.summary}</p>
           )}
 
-          {/* Bottom info bar */}
           <div className="flex items-center gap-4 flex-wrap pt-2 border-t border-slate-200">
             {confidence != null && (
               <span className="flex items-center gap-1 text-xs text-slate-500">
@@ -138,6 +142,100 @@ function HotspotCard({ item }) {
   );
 }
 
+function MultiSelect({ label, options, selected, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const toggle = (val) => {
+    const next = selected.includes(val) ? selected.filter(v => v !== val) : [...selected, val];
+    onChange(next);
+  };
+
+  const display = selected.length ? `${label} (${selected.length})` : label;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="input-dark w-auto text-sm flex items-center gap-1.5 cursor-pointer select-none"
+      >
+        {display}
+        <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute top-full mt-1 left-0 z-50 bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 min-w-[160px] max-h-60 overflow-y-auto">
+          {selected.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="w-full text-left text-xs text-slate-400 hover:text-aurora-cyan px-2.5 py-1 border-b border-slate-100 mb-1"
+            >
+              清除选择
+            </button>
+          )}
+          {options.map(opt => (
+            <label
+              key={opt.value}
+              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-slate-50 rounded-lg cursor-pointer text-sm text-slate-700"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(opt.value)}
+                onChange={() => toggle(opt.value)}
+                className="rounded border-slate-300 text-aurora-cyan focus:ring-aurora-cyan/30"
+              />
+              {opt.label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PushStatusBar() {
+  const [isPushing, setIsPushing] = useState(false);
+  const [isPushedAll, setIsPushedAll] = useState(false);
+
+  useEffect(() => {
+    if (window.pushStatusForDemo) {
+      setIsPushing(window.pushStatusForDemo.isPushing);
+      setIsPushedAll(window.pushStatusForDemo.isPushedAll);
+    }
+  });
+
+  if (isPushing) {
+    return (
+      <div className="flex items-center gap-2 py-2 px-4 mb-2 bg-yellow-50 border border-yellow-100 rounded-lg w-fit mx-auto animate-fade-in">
+        <Loader2 size={18} className="animate-spin text-yellow-500" />
+        <span className="text-sm text-yellow-700 font-medium">推送中...</span>
+      </div>
+    );
+  }
+  if (isPushedAll) {
+    return (
+      <div className="flex items-center gap-2 py-2 px-4 mb-2 bg-emerald-50 border border-emerald-100 rounded-lg w-fit mx-auto animate-fade-in">
+        <CheckCircle2 size={18} className="text-emerald-600" />
+        <span className="text-sm text-emerald-700 font-medium">已全部推送</span>
+      </div>
+    );
+  }
+  return null;
+}
+
+function RadarIcon(props) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}><path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"/><path d="M4 6h.01"/><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"/><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"/><path d="M12 18h.01"/><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"/><circle cx="12" cy="12" r="2"/></svg>
+  );
+}
+
 export default function Dashboard() {
   const { lastMessage } = useOutletContext();
   const [hotspots, setHotspots] = useState([]);
@@ -146,22 +244,32 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const countdownRef = useRef(null);
-  const [filters, setFilters] = useState({ source: '', verified_only: false, min_score: '' });
+  const [sort, setSort] = useState('published_at');
+  const [filters, setFilters] = useState({
+    sources: [],
+    keywords: [],
+    min_score: '',
+    max_score: '',
+    time_range: 'all',
+    has_url: false,
+  });
   const [keywords, setKeywords] = useState([]);
-  const [selectedKeyword, setSelectedKeyword] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [scanWarning, setScanWarning] = useState('');
 
   const fetchData = useCallback(async () => {
     try {
-      const params = { page, limit: 20 };
-      if (filters.source) params.source = filters.source;
-      params.verified_only = '1';
+      const params = { page, limit: 20, sort, verified_only: '1' };
+      if (filters.sources.length) params.source = filters.sources.join(',');
       if (filters.min_score) params.min_score = filters.min_score;
-      if (selectedKeyword) params.keyword_id = selectedKeyword;
+      if (filters.max_score) params.max_score = filters.max_score;
+      if (filters.keywords.length) params.keyword_id = filters.keywords.join(',');
       if (searchQuery) params.search = searchQuery;
+      if (filters.time_range !== 'all') params.time_range = filters.time_range;
+      if (filters.has_url) params.has_url = '1';
 
       const [hotspotsRes, statsRes, kwRes] = await Promise.all([
         api.getHotspots(params),
@@ -177,9 +285,8 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [page, filters, selectedKeyword, searchQuery]);
+  }, [page, filters, sort, searchQuery]);
 
-  // Keep a ref to the latest fetchData for use in non-reactive callbacks
   const fetchDataRef = useRef(fetchData);
   useEffect(() => { fetchDataRef.current = fetchData; }, [fetchData]);
 
@@ -206,7 +313,6 @@ export default function Dashboard() {
     countdownRef.current = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
-          // Timeout: force stop
           stopCountdown();
           fetchDataRef.current();
           return 0;
@@ -220,24 +326,24 @@ export default function Dashboard() {
     return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
   }, []);
 
-  // Use refs for filter values so WebSocket handler always reads latest
-  const filtersRef = useRef({ selectedKeyword, filters, searchQuery });
+  const filtersRef = useRef({ filters, searchQuery });
   useEffect(() => {
-    filtersRef.current = { selectedKeyword, filters, searchQuery };
-  }, [selectedKeyword, filters, searchQuery]);
+    filtersRef.current = { filters, searchQuery };
+  }, [filters, searchQuery]);
 
   useEffect(() => {
     if (!lastMessage) return;
     const { type, data } = lastMessage;
     if (type === 'new_hotspot' && data) {
-      const { selectedKeyword: kw, filters: f, searchQuery: sq } = filtersRef.current;
-      const matchesKeyword = !kw || String(data.keyword_id) === String(kw);
-      const matchesSource = !f.source || data.source === f.source;
-      const matchesScore = !f.min_score || (data.heat_score >= Number(f.min_score));
+      const { filters: f, searchQuery: sq } = filtersRef.current;
+      const matchesKeyword = !f.keywords.length || f.keywords.includes(String(data.keyword_id));
+      const matchesSource = !f.sources.length || f.sources.includes(data.source);
+      const matchesScore = (!f.min_score || data.heat_score >= Number(f.min_score)) && (!f.max_score || data.heat_score <= Number(f.max_score));
       const matchesVerified = data.is_verified;
       const matchesSearch = !sq || data.title?.toLowerCase().includes(sq.toLowerCase()) || data.summary?.toLowerCase().includes(sq.toLowerCase());
+      const matchesUrl = !f.has_url || (data.source_url && data.source_url !== '');
 
-      if (matchesKeyword && matchesSource && matchesScore && matchesVerified && matchesSearch) {
+      if (matchesKeyword && matchesSource && matchesScore && matchesVerified && matchesSearch && matchesUrl) {
         setHotspots(prev => [data, ...prev].slice(0, 20));
         setTotal(prev => prev + 1);
       }
@@ -253,6 +359,11 @@ export default function Dashboard() {
     if (type === 'scan-progress') {
       if (data?.status === 'started') { if (!refreshing) startCountdown(); }
       if (data?.status === 'completed' || data?.status === 'error') stopCountdown();
+      if (data?.status === 'no_keywords') {
+        stopCountdown();
+        setScanWarning('没有已启用的关键词，请先到「关键词管理」页面启用至少一个关键词');
+        setTimeout(() => setScanWarning(''), 6000);
+      }
     }
   }, [lastMessage]);
 
@@ -288,6 +399,14 @@ export default function Dashboard() {
           {refreshing ? `扫描中... ${countdown}s` : '立即扫描'}
         </button>
       </div>
+
+      {/* Scan Warning */}
+      {scanWarning && (
+        <div className="mb-6 px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          {scanWarning}
+        </div>
+      )}
 
       {/* Stats Cards */}
       {stats && (
@@ -354,44 +473,95 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Filters */}
-      <div className="glass-card p-4 mb-6">
+      {/* Filter & Sort Bar */}
+      <div className="glass-card p-4 mb-4">
         <div className="flex items-center gap-3 flex-wrap">
-          <select
-            className="input-dark w-auto text-sm"
-            value={selectedKeyword}
-            onChange={e => { setSelectedKeyword(e.target.value); setPage(1); }}
-          >
-            <option value="">全部关键词</option>
-            {keywords.map(k => (
-              <option key={k.id} value={k.id}>{k.keyword}</option>
+          <span className="text-base font-semibold text-slate-600 mr-2">筛选</span>
+          <MultiSelect
+            label="全部关键词"
+            options={keywords.map(kw => ({ value: String(kw.id), label: kw.keyword }))}
+            selected={filters.keywords}
+            onChange={vals => { setFilters(f => ({ ...f, keywords: vals })); setPage(1); }}
+          />
+          <MultiSelect
+            label="全部来源"
+            options={[
+              { value: 'web', label: 'Web' },
+              { value: 'twitter', label: 'Twitter' },
+              { value: 'rss', label: 'RSS' },
+              { value: 'bilibili', label: 'B站' },
+              { value: 'weibo', label: '微博' },
+            ]}
+            selected={filters.sources}
+            onChange={vals => { setFilters(f => ({ ...f, sources: vals })); setPage(1); }}
+          />
+          <MultiSelect
+            label="全部时间"
+            options={[
+              { value: 'today', label: '今天' },
+              { value: '3days', label: '3天内' },
+              { value: '7days', label: '7天内' },
+            ]}
+            selected={filters.time_range === 'all' ? [] : [filters.time_range]}
+            onChange={vals => { setFilters(f => ({ ...f, time_range: vals.length ? vals[vals.length - 1] : 'all' })); setPage(1); }}
+          />
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-500 whitespace-nowrap">热度</span>
+            <input
+              type="number"
+              min="0"
+              max="10"
+              placeholder="0"
+              value={filters.min_score}
+              onChange={e => { setFilters(f => ({ ...f, min_score: e.target.value })); setPage(1); }}
+              className="input-dark w-20 text-sm text-center"
+            />
+            <span className="text-xs text-slate-400">—</span>
+            <input
+              type="number"
+              min="0"
+              max="10"
+              placeholder="10"
+              value={filters.max_score}
+              onChange={e => { setFilters(f => ({ ...f, max_score: e.target.value })); setPage(1); }}
+              className="input-dark w-20 text-sm text-center"
+            />
+          </div>
+          <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={filters.has_url}
+              onChange={e => { setFilters(f => ({ ...f, has_url: e.target.checked })); setPage(1); }}
+              className="rounded border-slate-300 text-aurora-cyan focus:ring-aurora-cyan/30"
+            />
+            可访问原文
+          </label>
+        </div>
+        {/* 排序 */}
+        <div className="flex items-center gap-4 flex-wrap pt-3 border-t border-slate-100 mt-3">
+          <span className="text-base font-semibold text-slate-600 mr-2">排序</span>
+          <div className="flex items-center gap-2">
+            {[
+              { value: 'published_at', label: '最新发布' },
+              { value: 'created_at', label: '最新发现' },
+              { value: 'engagement', label: '互动数据' },
+              { value: 'confidence', label: '相关性最高' },
+            ].map(opt => (
+              <button
+                key={opt.value}
+                className={`px-3 py-1 rounded border text-sm transition-colors ${sort === opt.value ? 'bg-aurora-cyan/90 text-white border-aurora-cyan' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                onClick={() => { setSort(opt.value); setPage(1); }}
+                type="button"
+              >
+                {opt.label}
+              </button>
             ))}
-          </select>
-          <select
-            className="input-dark w-auto text-sm"
-            value={filters.source}
-            onChange={e => { setFilters(f => ({ ...f, source: e.target.value })); setPage(1); }}
-          >
-            <option value="">全部来源</option>
-            <option value="web">Web</option>
-            <option value="twitter">Twitter</option>
-            <option value="rss">RSS</option>
-            <option value="bilibili">B站</option>
-            <option value="weibo">微博</option>
-          </select>
-          <select
-            className="input-dark w-auto text-sm"
-            value={filters.min_score}
-            onChange={e => { setFilters(f => ({ ...f, min_score: e.target.value })); setPage(1); }}
-          >
-            <option value="">全部热度</option>
-            <option value="8">🔥 高热 (≥8)</option>
-            <option value="5">⭐ 中等 (≥5)</option>
-            <option value="3">📌 低热 (≥3)</option>
-          </select>
-
+          </div>
         </div>
       </div>
+
+      {/* 推送状态提示 */}
+      <PushStatusBar />
 
       {/* Hotspot List */}
       {loading ? (
@@ -410,8 +580,8 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {hotspots.map(item => (
-            <HotspotCard key={item.id} item={item} />
+          {hotspots.map((item, index) => (
+            <HotspotCard key={item.id} item={item} rank={(page - 1) * 20 + index + 1} />
           ))}
         </div>
       )}
@@ -439,11 +609,5 @@ export default function Dashboard() {
         </div>
       )}
     </div>
-  );
-}
-
-function RadarIcon(props) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}><path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"/><path d="M4 6h.01"/><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"/><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"/><path d="M12 18h.01"/><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"/><circle cx="12" cy="12" r="2"/></svg>
   );
 }

@@ -17,8 +17,8 @@ export default function Notifications() {
       const params = { page, limit: 20 };
       if (filter === 'unread') params.unread_only = true;
       const res = await api.getNotifications(params);
-      setNotifications(res.items || []);
-      setTotal(res.total || 0);
+      setNotifications(res.data || []);
+      setTotal(res.pagination?.total || 0);
     } catch (err) {
       console.error(err);
     } finally {
@@ -99,26 +99,36 @@ export default function Notifications() {
           {notifications.map(n => (
             <div
               key={n.id}
-              className={`glass-card p-4 animate-fade-in transition-all ${!n.is_read ? 'border-l-2 border-l-aurora-cyan' : ''}`}
+              className={`glass-card p-4 animate-fade-in transition-all cursor-pointer hover:shadow-md ${!n.is_read ? 'border-l-2 border-l-aurora-cyan' : ''}`}
+              onClick={() => {
+                if (!n.is_read) handleMarkRead(n.id);
+                if (n.source_url) window.open(n.source_url, '_blank', 'noopener');
+              }}
             >
               <div className="flex items-start gap-3">
                 <div className={`mt-0.5 p-1.5 rounded-lg ${n.is_read ? 'text-slate-400 bg-slate-100' : 'text-aurora-cyan bg-aurora-cyan/8'}`}>
                   <Bell size={14} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm leading-relaxed ${n.is_read ? 'text-slate-500' : 'text-slate-800'}`}>
-                    {n.message}
+                  <p className={`text-sm font-medium ${n.is_read ? 'text-slate-500' : 'text-slate-800'}`}>
+                    {n.hotspot_title || '热点动态'}
                   </p>
+                  {n.hotspot_summary && (
+                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">{n.hotspot_summary}</p>
+                  )}
                   <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
                     <span>{new Date(n.created_at).toLocaleString('zh-CN')}</span>
-                    {n.hotspot_id && (
-                      <span className="text-aurora-purple/70">#{n.hotspot_id}</span>
+                    {n.heat_score > 0 && (
+                      <span className="text-aurora-pink">🔥 {n.heat_score}</span>
+                    )}
+                    {n.source_url && (
+                      <span className="text-aurora-purple/70 hover:underline">查看原文 →</span>
                     )}
                   </div>
                 </div>
                 {!n.is_read && (
                   <button
-                    onClick={() => handleMarkRead(n.id)}
+                    onClick={(e) => { e.stopPropagation(); handleMarkRead(n.id); }}
                     className="p-1.5 text-slate-400 hover:text-aurora-cyan transition-colors rounded-lg hover:bg-slate-100"
                     title="标记已读"
                   >

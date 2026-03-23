@@ -92,6 +92,30 @@ export async function initDatabase() {
     db.run("INSERT INTO settings (key, value) VALUES ('notify_websocket', '1')");
   }
 
+  // Migration: normalize non-ISO published_at dates to ISO format
+  try {
+    const stmt = db.prepare("SELECT id, published_at FROM hotspots WHERE published_at IS NOT NULL AND published_at NOT LIKE '____-__-__%'");
+    const toFix = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      try {
+        const d = new Date(row.published_at);
+        if (!isNaN(d.getTime())) {
+          toFix.push({ id: row.id, iso: d.toISOString() });
+        }
+      } catch { /* skip unparseable */ }
+    }
+    stmt.free();
+    if (toFix.length > 0) {
+      for (const { id, iso } of toFix) {
+        db.run("UPDATE hotspots SET published_at = ? WHERE id = ?", [iso, id]);
+      }
+      console.log(`🔧 Migrated ${toFix.length} published_at dates to ISO format`);
+    }
+  } catch (e) {
+    console.error('Date migration error:', e.message);
+  }
+
   saveDatabase();
   console.log('✅ Database initialized');
   return db;
@@ -144,8 +168,7 @@ export function queryOne(sql, params = []) {
 
 export function runSql(sql, params = []) {
   db.run(sql, params);
-  saveDatabase();
-  // Get last inserted row id using exec
+  // Get last inserted row id BEFORE saveDatabase to avoid potential reset
   let lastId = 0;
   try {
     const res = db.exec("SELECT last_insert_rowid()");
@@ -153,5 +176,7 @@ export function runSql(sql, params = []) {
       lastId = Number(res[0].values[0][0]);
     }
   } catch (e) { /* ignore */ }
-  return { changes: db.getRowsModified(), lastId };
+  const changes = db.getRowsModified();
+  saveDatabase();
+  return { changes, lastId };
 }

@@ -33,9 +33,14 @@ export const api = {
   getStats: () => request('/api/hotspots/stats/overview'),
 
   // Notifications
-  getNotifications: (params = {}) => {
+  getNotifications: async (params = {}) => {
     const qs = new URLSearchParams(params).toString();
-    return request(`/api/notifications${qs ? '?' + qs : ''}`);
+    const res = await fetch(`/api/notifications${qs ? '?' + qs : ''}`, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    return json;
   },
   markRead: (id) => request(`/api/notifications/${id}/read`, { method: 'PUT' }),
   markAllRead: () => request('/api/notifications/read-all', { method: 'PUT' }),

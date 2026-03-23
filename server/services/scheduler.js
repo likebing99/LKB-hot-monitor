@@ -38,6 +38,15 @@ export async function runScan() {
 
   try {
     const keywords = queryAll("SELECT * FROM keywords WHERE enabled = 1");
+
+    if (keywords.length === 0) {
+      console.log('⚠️ No enabled keywords, skipping scan');
+      notifyWebSocket('scan-progress', { status: 'no_keywords' });
+      isScanning = false;
+      clearTimeout(timeoutGuard);
+      return { status: 'no_keywords', reason: 'no enabled keywords' };
+    }
+
     const apiKey = queryOne("SELECT value FROM settings WHERE key = 'openrouter_api_key'")?.value || process.env.OPENROUTER_API_KEY;
     const aiModel = queryOne("SELECT value FROM settings WHERE key = 'ai_model'")?.value || '';
     const twitterKey = process.env.TWITTER_API_KEY || queryOne("SELECT value FROM settings WHERE key = 'twitter_api_key'")?.value;
@@ -103,6 +112,16 @@ export async function runScan() {
         );
         if (existing) return;
 
+        // Normalize published_at to ISO format for proper sorting
+        const rawTime = item.time || new Date().toISOString();
+        let publishedAt;
+        try {
+          const d = new Date(rawTime);
+          publishedAt = isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+        } catch {
+          publishedAt = new Date().toISOString();
+        }
+
         const result = runSql(
           `INSERT INTO hotspots (title, summary, source, source_url, keyword_id, heat_score, is_verified, ai_analysis, raw_data, published_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -116,7 +135,7 @@ export async function runScan() {
             item.is_verified || 0,
             item.ai_analysis || '',
             JSON.stringify(item),
-            item.time || new Date().toISOString(),
+            publishedAt,
           ]
         );
 
