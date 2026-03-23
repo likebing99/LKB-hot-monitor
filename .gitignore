@@ -28,3 +28,14 @@ server/diagnostic*
 server/health-check.mjs
 server/health.json
 server/*-result.txt
+
+# Service logs
+server/service-*.log
+server/tunnel-*.log
+
+# Runtime data
+.hot-monitor/
+
+# Temp files
+tmp-*.txt
+D:\tmp-git.txt
